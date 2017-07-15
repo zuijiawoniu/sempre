@@ -38,6 +38,9 @@ public class Dataset {
 
     @Option(gloss = "Only keep examples which have at most this number of tokens")
     public int maxTokens = Integer.MAX_VALUE;
+
+    @Option(gloss = "Path to a knowledge graph that will be uploaded as global context")
+    public String globalGraphPath;
   }
 
   public static Options opts = new Options();
@@ -96,9 +99,21 @@ public class Dataset {
         return;
       }
     }
-
     readLispTreeFromPathPairs(pathPairs);
+    updateGlobalContext();
   }
+
+  private void updateGlobalContext() {
+    if (opts.globalGraphPath != null) {
+      KnowledgeGraph graph = NaiveKnowledgeGraph.fromFile(opts.globalGraphPath);
+      for (String group : allExamples.keySet()) {
+        for (Example ex : allExamples.get(group)) {
+          ex.setContext(new ContextValue(graph));
+        }
+      }
+    }
+  }
+
 
   private void readJsonFromPathPairs(List<Pair<String, String>> pathPairs) {
     List<GroupInfo> groups = Lists.newArrayListWithCapacity(pathPairs.size());
@@ -213,8 +228,10 @@ public class Dataset {
     while (examples.size() < maxExamples && trees.hasNext()) {
       // Format: (example (id ...) (utterance ...) (targetFormula ...) (targetValue ...))
       LispTree tree = trees.next();
-      if (tree.children.size() < 2 && !"example".equals(tree.child(0).value))
+      if (tree.children.size() < 2 || !"example".equals(tree.child(0).value)) {
+        if ("metadata".equals(tree.child(0).value)) continue;
         throw new RuntimeException("Invalid example: " + tree);
+      }
 
       Example ex = Example.fromLispTree(tree, path + ":" + n);  // Specify a default id if it doesn't exist
       n++;
@@ -241,7 +258,7 @@ public class Dataset {
     LogInfo.end_track();
   }
 
-  private static int getMaxExamplesForGroup(String group) {
+  public static int getMaxExamplesForGroup(String group) {
     int maxExamples = Integer.MAX_VALUE;
     for (Pair<String, Integer> maxPair : opts.maxExamples)
       if (maxPair.getFirst().equals(group))

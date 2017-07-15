@@ -4,6 +4,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import fig.basic.*;
+import jline.console.ConsoleReader;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -40,22 +41,24 @@ public class Master {
     @Option(gloss = "Write out new grammar rules")
     public String newGrammarPath;
   }
-
   public static Options opts = new Options();
-
+  
   public class Response {
     // Example that was parsed, if any.
-    Example ex;
+    public Example ex;
 
     // Which derivation we're selecting to show
     int candidateIndex = -1;
 
     // Detailed information
-    List<String> lines = new ArrayList<>();
+    public Map<String, Object> stats = new LinkedHashMap<>();
+    public List<String> lines = new ArrayList<>();
 
     public String getFormulaAnswer() {
       if (ex.getPredDerivations().size() == 0)
         return "(no answer)";
+      else if (candidateIndex == -1)
+        return "(not selected)";
       else {
         Derivation deriv = getDerivation();
         return deriv.getFormula() + " => " + deriv.getValue();
@@ -64,6 +67,8 @@ public class Master {
     public String getAnswer() {
       if (ex.getPredDerivations().size() == 0)
         return "(no answer)";
+      else if (candidateIndex == -1)
+        return "(not selected)";
       else {
         Derivation deriv = getDerivation();
         deriv.ensureExecuted(builder.executor, ex.context);
@@ -79,9 +84,9 @@ public class Master {
     }
   }
 
-  private Builder builder;
-  private Learner learner;
-  private HashMap<String, Session> sessions = new LinkedHashMap<>();
+  protected Builder builder;
+  protected Learner learner;
+  protected HashMap<String, Session> sessions = new LinkedHashMap<>();
 
   public Master(Builder builder) {
     this.builder = builder;
@@ -106,7 +111,7 @@ public class Master {
     return session;
   }
 
-  void printHelp() {
+  protected void printHelp() {
     LogInfo.log("Enter an utterance to parse or one of the following commands:");
     LogInfo.log("  (help): show this help message");
     LogInfo.log("  (status): prints out status of the system");
@@ -126,31 +131,32 @@ public class Master {
     LogInfo.log("Press Ctrl-D to exit.");
   }
 
+  public void runServer() {
+    Server server = new Server(this);
+    server.run();;
+  }
+  
   public void runInteractivePrompt() {
     Session session = getSession("stdin");
 
     if (opts.printHelp)
       printHelp();
-
-    while (true) {
-      LogInfo.stdout.print("> ");
-      LogInfo.stdout.flush();
+    try {
+      ConsoleReader reader = new ConsoleReader();
+      reader.setPrompt("> ");
       String line;
-      try {
-        line = LogInfo.stdin.readLine();
-      } catch (IOException e) {
-        throw new RuntimeException(e);
+      while ((line = reader.readLine()) != null) {
+        int indent = LogInfo.getIndLevel();
+        try {
+          processQuery(session, line);
+        } catch (Throwable t) {
+          while (LogInfo.getIndLevel() > indent)
+            LogInfo.end_track();
+          t.printStackTrace();
+        }
       }
-      if (line == null) break;
-
-      int indent = LogInfo.getIndLevel();
-      try {
-        processQuery(session, line);
-      } catch (Throwable t) {
-        while (LogInfo.getIndLevel() > indent)
-          LogInfo.end_track();
-        t.printStackTrace();
-      }
+    } catch (IOException e) {
+      throw new RuntimeException(e);
     }
   }
 
